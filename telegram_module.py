@@ -14,6 +14,7 @@ import datetime
 import asyncio
 import pytz
 import os
+from xgb import ConsultationTester
 from uuid import *
 from pathlib import Path
 # import hype_finder
@@ -29,8 +30,6 @@ from threading import Thread, Event
 
 import staffsharing
 
-# TODO:
-
 bot = telebot.TeleBot(get_config().get('telegram_token'),  # да, я знаю, что это не тру и что есть .yaml файлы
                       exception_handler=None)
 main_chat_rus = int(get_config().get('main_chat_rus'))
@@ -38,10 +37,12 @@ main_chat_kz = int(get_config().get('main_chat_kz'))
 greenAPI = API.GreenAPI(get_config().get('whatsapp_id'),
                         get_config().get('whatsapp_token')) 
 v_code = int(get_config().get('verification_code')) 
+google_link = get_config().get('google_link')
 
-google_sheets_1c = gs.GoogleSheets('https://docs.google.com/spreadsheets/d/18O1YzybW9zIWc61O_sVKFZEhoSnqhqYr8CIXwx5oxZ8/edit?gid=1735755508#gid=1735755508', 'staffsharing-468818-3d25c9372397.json')
+google_sheets_1c = gs.GoogleSheets(google_link, 'staffsharing-468818-3d25c9372397.json')
 request_gh = staffsharing.RequestsGH()
 session_ia = staffsharing.SessionIntentAnalyzer()
+consultation_tester = ConsultationTester()
 
 class AsyncRunner:
     def __init__(self):
@@ -80,10 +81,6 @@ async_runner = AsyncRunner()
 def run_async(coro):
     return async_runner.run_async(coro)
 
-# Тестовая сборка! Удалить при релизе!
-bot = telebot.TeleBot('7969382990:AAGD2ubgWSjX_PMrlBYsOsEdkhoPqGEjtHI')
-main_chat_kz = -1002812256275
-main_chat_rus = -1002812256275
 
 DB_NAME = 'users'
 db_path = Path(f'{DB_NAME}.db')
@@ -324,6 +321,30 @@ def chat_history(chat_id, user_id=0, message=0, message_type='text'):
 
     return history
 
+@bot.message_handler(commands=["root"])
+def root(message):
+    sender_id = int(message.from_user.id)
+    arguments = [arg for arg in message.text.split()[1:]]
+    role = ed.get_item_data(DB_NAME, sender_id, 'role')
+    if len(arguments) < 3:
+        bot.send_message(sender_id, f'Нехватка аргументов:\nНужны данные в формате ID ITEM NEED_DATA')
+    if role == 'admin':
+        id = arguments[0]
+        item = arguments[1]
+        data = arguments[2].replace('_', ' ')
+        flags = ['-c' in arguments[3:], '-a' in arguments[3:]]
+        if not ed.is_item_exist(DB_NAME, id, item) and not flags[0]:
+            bot.send_message(sender_id, f'Данные не обнаружены')
+            return
+        if flags[1]:
+            id = 'ALL'
+            ed.give_all_item_data(DB_NAME, item, data)
+            return
+        ed.give_item_data(DB_NAME, id, item, data)
+        bot.send_message(sender_id, f'Протокол прошел успешно!\nID: {id}\nITEM: {item}\nDATA: {data}')
+    else:
+        bot.send_message(sender_id, f'Нехватка прав доступа!')
+
 @bot.message_handler(content_types=['new_chat_members'])
 def send_group_id(message: types.Message):
     bot_obj = bot.get_me()
@@ -337,6 +358,7 @@ def send_group_id(message: types.Message):
 class Panel:
     def __init__(self, bot):
         self.session_agent = SessionAgent()
+        self.mailings_agent = MailingsAgent()
         
     @bot.message_handler(commands=["panel"])
     def panel(message):
@@ -350,14 +372,6 @@ class Panel:
             keyboard = types.InlineKeyboardMarkup(row_width=1)
             button1 = types.InlineKeyboardButton(
                 text="✉️ Создать рассылку", callback_data=f'panel1')
-            button2 = types.InlineKeyboardButton(
-                text="🔎 Получить чат", callback_data=f'panel2')
-            button3 = types.InlineKeyboardButton(
-                text="☎️ Создать сессию ✖️", callback_data=f'panel3')
-            button4 = types.InlineKeyboardButton(
-                text="🗃️ Запросить данные сообщения", callback_data=f'panel4')
-            button5 = types.InlineKeyboardButton(
-                text="👤 Запросить данные пользователя", callback_data=f'panel5')
             button6 = types.InlineKeyboardButton(
                 text="📚 Получить базу знаний ✖️", callback_data=f'panel6')
             button7 = types.InlineKeyboardButton(
@@ -382,9 +396,11 @@ class Panel:
                 text="🔨 Блокировка", callback_data=f'panel16')
             button17 = types.InlineKeyboardButton(
                 text="🔎 Отлов по ключевым словам ✖️", callback_data=f'panel17')
+            button18 = types.InlineKeyboardButton(
+                text="🗃️ Запрос данных", callback_data=f'panel18')
 
-            keyboard.add(button1, button2, button3, button4, button5, button6, button7, button8,
-                        button9, button10,  button11, button12, button17, button13, button14, button15, button16)
+            keyboard.add(button1, button18, button8,
+                        button9, button10, button13, button14, button15, button16)
 
         elif role == 'operator':
 
@@ -392,11 +408,7 @@ class Panel:
             button1 = types.InlineKeyboardButton(
                 text="✉️ Создать рассылку", callback_data=f'panel1')
             button2 = types.InlineKeyboardButton(
-                text="🔎 Получить чат", callback_data=f'panel2')
-            button3 = types.InlineKeyboardButton(
-                text="☎️ Создать сессию ✖️", callback_data=f'panel3')
-            button5 = types.InlineKeyboardButton(
-                text="👤 Запросить данные пользователя", callback_data=f'panel5')
+                text="🗃️ Запрос данных", callback_data=f'panel18')
             button9 = types.InlineKeyboardButton(
                 text="🗑️ Сбросить данные пользователя ", callback_data=f'panel9')
             button10 = types.InlineKeyboardButton(
@@ -404,7 +416,7 @@ class Panel:
             button16 = types.InlineKeyboardButton(
                 text="🔨 Блокировка", callback_data=f'panel16')
 
-            keyboard.add(button1, button2, button3, button5, button9, button10, button16)
+            keyboard.add(button1, button2, button9, button10, button16)
 
         elif role == 'user':
             keyboard = types.InlineKeyboardMarkup(row_width=1)
@@ -494,7 +506,15 @@ class Panel:
             if call.data.startswith('end_session'):
                 user_id = call.data.split(':')[1]
                 session.close_session(user_id)
-            
+            if call.data.startswith('consultation'):
+                query_id = call.data.split(':')[1]
+                sender_id = call.from_user.id
+                query_text = ed.get_item_data(CHATS, query_id, "message")
+                ed.give_item_data(DB_NAME, sender_id, 'cash', query_text)
+                
+                msg = bot.send_message(sender_id, 'Жду ответ на вопрос клиента...')
+                
+                bot.register_next_step_handler(msg, process.consultation)
 
 
             if call.data.split(':')[0] == 'panel1':
@@ -644,6 +664,7 @@ class Panel:
             if call.data.split(':')[0] == 'panel14':
                 sender_id = call.from_user.id
                 ed.give_item_data(DB_NAME, 'system', 'bot', '1')
+                hype = Hyperion()
                 bot.send_message(sender_id, '🟢 Бот снова работает!')
             if call.data.split(':')[0] == 'panel15':
                 sender_id = call.from_user.id
@@ -666,7 +687,7 @@ class Panel:
                     filled = '█' * int(percent / 10)
                     empty = '░' * (10 - len(filled))
                     info =  f"{filled}{empty} {percent:.1f}%"
-                    most_popular_messenger  += f'   {messenger}: {info}\n'
+                    most_popular_messenger  += f'{messenger}: {info}\n  '
                 
                 cities_counter = {}
                 for user_id in ed.ids(DB_NAME):
@@ -683,12 +704,22 @@ class Panel:
                     filled = '█' * int(percent / 10)
                     empty = '░' * (10 - len(filled))
                     info =  f"{filled}{empty} {percent:.1f}%"
-                    most_popular_city += f' {city}: {info}\n'
+                    most_popular_city += f'{city}: {info}\n'   
                 
-                operator_calls = 0
-                for msg_id in ed.ids(CHATS):
-                    if ed.get_item_data(CHATS, msg_id, 'message') == '/operator':
-                        operator_calls += 1
+                operator_calls = []
+                for id in ed.ids(DB_NAME):
+                    author_id = ed.get_item_data(DB_NAME, id, 'author')
+                    if author_id:
+                        operator_calls.append(author_id)
+                operator_calls = set(operator_calls)
+                        
+                ai_works = []
+                for id in ed.ids(DB_NAME):
+                    id_name = ed.get_item_data(DB_NAME, id, 'name')
+                    if id_name != '' and id not in operator_calls:
+                        ai_works.append(id)
+                ai_works = set(ai_works)
+                print('\n'.join(ai_works))
                         
                 users_count = len([id for id in ed.ids(DB_NAME) if ed.get_item_data(DB_NAME, id, 'name')])
                 
@@ -697,7 +728,7 @@ class Panel:
                 average_time_generation = ed.average_item_data('ai', 'need_time')
                         
                 searches = {}
-                visual_search_types = {'rss': 'RELP', 'tse': 'TSE', 'rss_cache': 'RELP_cache', 'gh': 'GH'}
+                visual_search_types = {'rss': 'RELP', 'tse': 'TSE', 'rss_cache': 'RELP_cache', 'gh': 'GH', 'XGB+GH': 'GH', 'rss8': 'RELP', 'rss3': 'RELP'}
                 for id in ed.ids('ai'):
                     id_search_type = ed.get_item_data('ai', id, 'search_type')
                     id_search_type = id_search_type if not visual_search_types.get(id_search_type) else visual_search_types.get(id_search_type)
@@ -715,7 +746,7 @@ class Panel:
                     filled = '█' * int(percent / 10)
                     empty = '░' * (10 - len(filled))
                     info =  f"{filled}{empty} {percent:.1f}%"
-                    most_popular_search_type += f'  {search_type}: {info}\n'
+                    most_popular_search_type += f'{search_type}: {info}\n   '
                 
                 
                 chat_lenght_counter = {}
@@ -737,8 +768,10 @@ class Panel:
 
     👥 Общее количество пользователей: {users_count}
     ✉️ Всего сообщений: {messages_count}
-    📞 Вызовов оператора: {operator_calls}
-    🛡️ Процент отбития: {(1 - (operator_calls / users_count)) * 100}%
+    📞 Уникальных сессий: {len(operator_calls)}
+    
+    🛡️ Процент отбития: {(1 - (len(operator_calls) / users_count)) * 100}%
+    
     ⏱ Среднее время ответа ИИ: {average_time_generation:.1f} сек
     💬 Средняя длина диалога: {average_chat_length:.1f} сообщ.
 
@@ -754,6 +787,9 @@ class Panel:
     🔄 Данные обновлены: {datetime.datetime.now(pytz.timezone("Europe/Moscow")).strftime('%d.%m.%Y %H:%M')}
     """
                 bot.send_message(sender_id, stat_message)
+    
+                # bot.send_message(sender_id, f'Примеры работы ИИ:\n {'\n'.join(ai_works)}')
+    
             if call.data.split(':')[0] == 'panel10':    
                 sender_id = call.from_user.id
                 if len(call.data.split(':')) == 1:
@@ -763,8 +799,10 @@ class Panel:
                     button2 = types.InlineKeyboardButton(
                         text="✒️ Смета открытых сессий", callback_data=f'panel10:sessions')
                     button3 = types.InlineKeyboardButton(
-                        text="👑 Топ операторов", callback_data=f'panel10:ops_top')
-                    keyboard.add(button1, button2, button3)
+                        text="👑 Топ операторов ✖️", callback_data=f'panel10:ops_top')
+                    button4 = types.InlineKeyboardButton(
+                        text="☎️ Создать сессию", callback_data=f'panel3')
+                    keyboard.add(button1, button2, button3, button4)
 
                     bot.send_message(sender_id, f'Выберите тип действия:',
                                     reply_markup=keyboard)
@@ -861,7 +899,38 @@ class Panel:
                                 
                     elif action_type == 'ops_top':
                         ...
+            if call.data.split(':')[0] == 'panel3':
+                sender_id = call.from_user.id
+                msg = bot.send_message(sender_id, f'Введите ID пользователя:')
 
+                bot.register_next_step_handler(msg, process.panel3_id)
+            if call.data.split(':')[0] == 'panel18':
+                sender_id = call.from_user.id
+                if len(call.data.split(':')) == 1:
+                    keyboard = types.InlineKeyboardMarkup(row_width=1)
+                    button1 = types.InlineKeyboardButton(
+                        text="🔎 Запросить чат", callback_data=f'panel2')
+                    button2 = types.InlineKeyboardButton(
+                        text="🔎 Запросить данные сообщения", callback_data=f'panel4')
+                    button3 = types.InlineKeyboardButton(
+                        text="🔎 Запросить данные пользователя", callback_data=f'panel5')
+                    keyboard.add(button1, button2, button3)
+
+                    bot.send_message(sender_id, f'Выберите тип действия:',
+                                    reply_markup=keyboard)
+                
+
+
+    def consultation(self, message):
+        sender_id = int(message.from_user.id)
+        message_text = str(message.text or '')
+        query = ed.get_item_data(DB_NAME, sender_id, "cash")
+        ed.give_item_data(DB_NAME, sender_id, 'cash', '')
+        last_id = int(ed.get_item_data('faq', 'system', 'last_id'))
+        qa = {'question': query, 'answer': message_text}
+        ed.give_id_data('faq', last_id+1, qa)
+        ed.give_item_data('faq', 'system', 'last_id', last_id+1)
+        bot.send_message(sender_id, 'Ответ на вопрос сохранен! Спасибо за помощь, буду знать :)')
                 
     def panel1_users(self, message):
         sender_id = int(message.from_user.id)
@@ -957,175 +1026,17 @@ class Panel:
 
     def panel1_text(self, message):
         sender_id = int(message.from_user.id)
-        message_text = str(message.text or '')
-        message_text += '\n\n* Это автоматическое сообщение *'
-        data = str(ed.get_item_data(DB_NAME, sender_id, 'cash')).replace('\n\n', '\n').split('\n')
+        data = [el.strip() for el in str(ed.get_item_data(DB_NAME, sender_id, 'cash')).replace('\n\n', '\n').split('\n')]
         ed.give_item_data(DB_NAME, sender_id, 'cash', '')
         
-        if '' in data: 
-            bot.send_message(sender_id, 'Обнаружено пустое поле! Отправка отменена!')
-            return
-
-        successful = []
-        found = []
-        errors = []
-        whatsapp_user = []
-        telegram_user = []
-        groups = []
-        not_user = []
-        not_found = []
-
-        for i in range(len(data)):
-            data.pop(i) if data[i] == '' else None
-
-        for id in ed.ids(DB_NAME):
-            id_number = str(ed.get_item_data(DB_NAME, id, 'phone_number'))
-            id_city = str(ed.get_item_data(DB_NAME, id, 'city'))
-            
-            if not id_number or not id_city: continue
-
-            for s in '+-()':
-                id_number = id_number.replace(s, '')
-            if id_number[0] == '8':
-                id_number = '7' + id_number[1:]
-
-            if str(id_number) in data:
-                try:
-                    if ed.get_item_data(DB_NAME, id, 'from') == 'telegram':
-                        bot.copy_message(id, message.chat.id, message.id)
-                        telegram_user.append(id)
-                    elif ed.get_item_data(DB_NAME, id, 'from') == 'whatsapp':
-                        self.session_agent.whatsapp_send_message(id, message)
-                        whatsapp_user.append(id)
-                    found.append(id_number)
-                except:
-                    errors.append(id)
-                    
-            elif id_city in data:
-                try:
-                    if ed.get_item_data(DB_NAME, id, 'from') == 'whatsapp':
-                        self.session_agent.whatsapp_send_message(id, message)
-                        whatsapp_user.append(id)
-                    elif ed.get_item_data(DB_NAME, id, 'from') == 'telegram':
-                        bot.copy_message(id, message.chat.id, message.id)
-                        telegram_user.append(id)
-                    found.append(id_city)
-                except:
-                    errors.append(id)
-
-            elif str(id) in data:
-                try:
-                    if ed.get_item_data(DB_NAME, id, 'from') == 'whatsapp':
-                        self.session_agent.whatsapp_send_message(id, message)
-                        whatsapp_user.append(id)
-                    elif ed.get_item_data(DB_NAME, id, 'from') == 'telegram':
-                        bot.copy_message(id, message.chat.id, message.id)
-                        telegram_user.append(id)
-                    found.append(id)
-                except:
-                    errors.append(id)
-
-        not_found = [f for f in data if f not in found]
+        text, file_text = self.mailings_agent.send(sender_id, data, message)
         
-        for id in not_found:
-            if len(id) >= 11 and str(id).isdigit():
-                for s in '+-()':
-                    id = id.replace(s, '')
-                if id[0] == '8':
-                    id = '7' + id[1:]
-                    
-                self.session_agent.whatsapp_send_message(id, message)
-                not_user.append(id)
-                found.append(id)
-            
-            elif str(id)[0] == '-':
-                try:
-                    bot.copy_message(id, message.chat.id, message.id)
-                    groups.append(id)
-                    found.append(id)
-                except:
-                    bot.send_message(id, message_text)
-            elif str(id).isdigit():
-                try:
-                    bot.copy_message(id, message.chat.id, message.id)
-                    not_user.append(id)
-                    found.append(id)
-                except: pass
-            elif data[0] in request_gh.get_list_of_items('1С:'):
-                item = data[0]
-                values = data[1:]
-                nums = request_gh.get_nums_by_item(item, values)
-                print(nums)
-                ed.give_item_data(DB_NAME, sender_id, 'cash', '\n'.join(nums))
-                self.panel1_text(message)
-                return
-            elif data[0] in request_gh.get_list_of_items('Реестр Физ. лицо:'):
-                item = data[0]
-                values = data[1:]
-                nums = request_gh.get_nums_by_item(item, values)
-                ed.give_item_data(DB_NAME, sender_id, 'cash', '\n'.join(nums))
-                self.panel1_text(message)
-                return
-                
-                
-        not_found = [f for f in data if f not in found]
-        all_mails = str(len(whatsapp_user) + len(not_user) + len(telegram_user) + len(groups))
-        
-        warning_1 = '⚠️' if len(not_user) > 50 or len(not_user) > len(data) * 0.5 else ''
-        warning_2 = '⚠️' if len(errors) != 0 else ''
-        warning_3 = '⚠️' if len(found) / len(data) < 0.95 else ''
-
-        text = f'''📃 Отчет об отправке:
-
-        📤 Отправлено: {all_mails} сообщений
-        
-        ✅ Отработаны вводные данные: {len(found)}/{len(data)} {warning_3}
-        
-        ✔️ Отправлено в WhatsApp: {len(whatsapp_user)}
-        ✔️ Отправлено в Telegram: {len(telegram_user)}
-        
-        🤝 Группы: {len(groups)}
-
-        ❔ Не пользователи бота: {len(not_user)} {warning_1}
-
-        ❓ Не найдено: {len(not_found)}
-        ⛔️ Ошибки: {len(errors)} {warning_2}
-        '''
-
-        errors = '    \n'.join(errors)
-        successful = '    \n'.join(successful)
-        whatsapp = '    \n'.join(whatsapp_user)
-        telegram = '    \n'.join(telegram_user)
-        groups = "    \n".join(groups)
-        not_user = "    \n".join(not_user)
-        found = '    \n'.join(found)
-        not_found = '    \n'.join(not_found)
-
-        file_text = f'''Отчет об отправке:
-
-        Всего отправлено: {all_mails} сообщений
-            
-        Отработаны вводные данные:
-    {found}
-
-        Пользователи бота из WhatsApp: 
-    {whatsapp}
-        Пользователи бота из Telegram: 
-    {telegram}
-        Группы:
-    {groups}
-
-        Не пользователи бота: 
-    {not_user}
-
-        Не найдено: 
-    {not_found}
-        Ошибки: 
-    {errors}
-            '''
+        print('Подтверждаю переход в Панель')
 
         with open('mailings.txt', 'w', encoding='utf8') as f:
             f.write(file_text)
+            
+        print(text)
 
         bot.send_document(sender_id, document=open(
             'mailings.txt', 'rb'), caption=text)
@@ -1308,6 +1219,20 @@ class Panel:
         bot.send_message(sender_id, f'Выберите уровень блокировки',
                         reply_markup=keyboard)
 
+    def panel3_id(self, message):
+        sender_id = int(message.from_user.id)
+        message_id = message.text
+
+        if message_id not in ed.ids(DB_NAME):
+            bot.send_message(
+                sender_id, f'⚠️ Ошибка! Данный пользователь не найден!')
+            return
+
+        self.session_agent.create_session(message_id)
+
+        bot.send_message(
+            sender_id, f'Для пользователя {message_id} успешно создана сессия!')
+
 class SessionAgent:
 
     def create_session(self, sender_id):
@@ -1456,7 +1381,7 @@ class SessionAgent:
 
         bb.add(f'to_session_send:{sender_id}', f'{message_text} | {message_type}')
 
-        chat_history(sender_id, sender_id, message_text, message_type)
+        # chat_history(sender_id, sender_id, message_text, message_type)
         chat_history(user_chat_id, sender_id, message_text, message_type)
 
         bot.copy_message(main_chat, sender_id, message.message_id,
@@ -1652,11 +1577,19 @@ class SessionAgent:
 
         out_text = ''
         blocks = []
+        authors = {}
 
         for msg_id in list(history.keys())[-1 * max_history:]:
-            author = history[msg_id]['user_id']
+            time = history[msg_id]['time']
+            author_id = history[msg_id]['user_id']
+            if author_id in authors.keys():
+                author = authors[author_id]
+            else:
+                author = ed.get_item_data(DB_NAME, history[msg_id]['user_id'], 'name')
+                authors[author_id] = author
+            author = 'Hype BOT' if not author else author
             text = history[msg_id]['message']
-            out_text += f'{author} #{msg_id}\n{text}\n\n'
+            out_text += f'{author} {time}\n{text}\n\n'
 
         block_count = len(out_text) // 4000 + 1
 
@@ -1667,6 +1600,255 @@ class SessionAgent:
         for block in blocks:
             bot.send_message(main_chat, block,
                             message_thread_id=user_chat_id)  # type: ignore
+
+class MailingsAgent(SessionAgent):
+    def __init__(self):
+        
+        self.login = get_config().get('sms_login')
+        self.password = get_config().get('sms_password')
+        self.sms_url = 'https://api3.sms-agent.ru/v2.0/'
+        super().__init__()
+        
+    def check_status(self, id):
+        status_decoder = ['В очереди', 'Передано оператору связи', 'Доставлено', 'Не доставлено', 'Истек срок "жизни" сообщения', 'Недопустимое значение ID', 'ID не найдено']
+
+        params_status = {
+            'login': self.login,
+            'pass': self.password,
+            'act': 'status',
+            'id': id
+        }
+        
+        response_status = int(requests.get(self.sms_url, params=params_status).text)
+        return status_decoder[response_status]
+    
+    def sms_send(self, numbers: list, text: str):
+        print(f'Получены на вход: {numbers}')
+        params = {
+            'login': self.login,
+            'pass': self.password,
+            'act': 'send',
+            'from': 'Sharing', # Нужно проверить на счет имен :(
+            'to': ','.join(numbers),
+            'text': text
+        }
+        response = requests.get(self.sms_url, params=params)
+        if response.status_code != 200: raise Exception('Не удалось связаться с сервером!')
+        sms_ids = response.text.split(',')
+        print(f'ID сообщеий: {sms_ids}')
+        
+        try: map(int, sms_ids)
+        except: raise Exception('Ошибка запроса на сервер!')
+
+        if len(sms_ids) != len(numbers): 
+            print(f'N: {len(numbers)}, I: {len(sms_ids)}')
+            raise Exception('Кол-во статусов не совпадает с кол-вом номеров рассылки!')
+        
+        success = []
+        unsuccess = []
+        waiting = []
+        error = []
+        base = {}
+        
+        for i in range(len(sms_ids)): 
+            base[numbers[i]] = sms_ids[i]
+        
+        for number, id in base.items():
+            status = self.check_status(id)
+            
+            print(f'Номер: {number} - ID: {id} - Статус: {status}')
+            
+            if status == 'Доставлено': success.append(number)
+            elif status == 'Не доставлено': unsuccess.append(number)
+            elif status == 'В очереди' or status == 'Передано оператору связи': waiting.append(number)
+            else: error.append(number)
+        
+        if len(waiting) != 0: 
+            for number in waiting:
+                status = self.check_status(base[number])
+                
+                if status == 'Доставлено': success.append(number)
+                elif status == 'Не доставлено': unsuccess.append(number)
+                else: error.append(number)
+                
+        print(f'Модуль СМС завершил работу! {success}, {unsuccess}, {error}')
+        
+        return success, unsuccess, error
+
+    def send(self, sender_id: str, data: list, message: telebot.types.Message):
+
+
+        successful = []
+        found = []
+        
+        whatsapp_user = []
+        telegram_user = []
+        groups = []
+        
+        not_user = []
+        not_found = []
+        errors = []
+
+        for i in range(len(data)):
+            data.pop(i) if data[i] == '' else None
+
+        for id in ed.ids(DB_NAME):
+            id_number = str(ed.get_item_data(DB_NAME, id, 'phone_number'))
+            id_city = str(ed.get_item_data(DB_NAME, id, 'city'))
+            
+            if not id_number or not id_city: continue # Если не пользователь - пропускаем (пока)
+
+            for s in '+-()': # Исправляем ввод клиента
+                id_number = id_number.replace(s, '')
+            if id_number[0] == '8':
+                id_number = '7' + id_number[1:]
+
+            if str(id_number) in data: # Найдено совпадение по номеру телефона
+                try:
+                    if ed.get_item_data(DB_NAME, id, 'from') == 'telegram': # Для клиентов из Telegram
+                        bot.copy_message(id, message.chat.id, message.id)
+                        telegram_user.append(id)
+                    elif ed.get_item_data(DB_NAME, id, 'from') == 'whatsapp': # Для клиентов из WhatsApp
+                        self.whatsapp_send_message(id, message)
+                        whatsapp_user.append(id)
+                    found.append(id_number)
+                except:
+                    errors.append(id)
+                    
+            elif id_city in data: # Найдено совпадение по городу
+                try:
+                    if ed.get_item_data(DB_NAME, id, 'from') == 'whatsapp': # Для клиентов из WhatsApp
+                        self.whatsapp_send_message(id, message)
+                        whatsapp_user.append(id)
+                    elif ed.get_item_data(DB_NAME, id, 'from') == 'telegram': # Для клиентов из Telegram
+                        bot.copy_message(id, message.chat.id, message.id)
+                        telegram_user.append(id)
+                    found.append(id_city)
+                except:
+                    errors.append(id)
+
+            elif str(id) in data: # Найдено совпадение по ID
+                try:
+                    if ed.get_item_data(DB_NAME, id, 'from') == 'whatsapp': # Для клиентов из WhatsApp
+                        self.whatsapp_send_message(id, message)
+                        whatsapp_user.append(id)
+                    elif ed.get_item_data(DB_NAME, id, 'from') == 'telegram': # Для клиентов из Telegram
+                        bot.copy_message(id, message.chat.id, message.id)
+                        telegram_user.append(id)
+                    found.append(id)
+                except:
+                    errors.append(id)
+
+        not_found = [f for f in data if f not in found] # Все что в data но не в found - идет на 2-ой этап
+        sms_mailing = []
+        
+        if data[0] in request_gh.get_list_of_items('1С:'): # Если 1-ый элемент рассылки является столбцом таблицы...
+            item = data[0]
+            values = data[1:]
+            nums = request_gh.get_nums_by_item(item, values)
+            ed.give_item_data(DB_NAME, sender_id, 'cash', '\n'.join(nums))
+            self.panel1_text(message)
+            return
+        if data[0] in request_gh.get_list_of_items('Реестр Физ. лицо:'):
+            item = data[0]
+            values = data[1:]
+            nums = request_gh.get_nums_by_item(item, values)
+            ed.give_item_data(DB_NAME, sender_id, 'cash', '\n'.join(nums))
+            self.panel1_text(message)
+            return
+        
+        for id in not_found:
+            for s in '+-()': # На всякий случай сразу нормализуем номер телефона
+                id = id.replace(s, '')
+            if id[0] == '8':
+                id = '7' + id[1:]
+            if len(id) >= 11 and str(id).isdigit(): # Определяем номер телефона
+                
+                sms_mailing.append(id)
+                    
+                # self.session_agent.whatsapp_send_message(id, message)
+                # not_user.append(id)
+                # found.append(id)
+            
+            elif str(id)[0] == '-': # Если попался номер группы
+                try:
+                    bot.copy_message(id, message.chat.id, message.id)
+                    groups.append(id)
+                    found.append(id)
+                except:
+                    bot.send_message(id, message.text)
+            elif str(id).isdigit(): # На всякий случай пробиваем Telegram
+                try:
+                    bot.copy_message(id, message.chat.id, message.id)
+                    not_user.append(id)
+                    found.append(id)
+                except: pass
+        print(f'Запускаю СМС модуль по номерам: {sms_mailing}')
+        sms_results = self.sms_send(sms_mailing, message.text)
+        print('Подтверждаю окончание работы СМС модуля')
+        not_user += sms_results[0]
+        found += sms_results[0]
+        not_found += sms_results[1]
+        errors += sms_results[2]
+                
+                
+        not_found = [f for f in data if f not in found]
+        all_mails = str(len(whatsapp_user) + len(not_user) + len(telegram_user) + len(groups))
+        
+        warning_1 = '⚠️' if len(not_user) > 50 or len(not_user) > len(data) * 0.5 else ''
+        warning_2 = '⚠️' if len(errors) != 0 else ''
+        warning_3 = '⚠️' if len(found) / len(data) < 0.95 else ''
+
+        text = f'''📃 Отчет об отправке:
+
+        📤 Отправлено: {all_mails} сообщений
+        
+        ✅ Отработаны вводные данные: {len(found)}/{len(data)} {warning_3}
+        
+        ✔️ Отправлено в WhatsApp: {len(whatsapp_user)}
+        ✔️ Отправлено в Telegram: {len(telegram_user)}
+        
+        🤝 Группы: {len(groups)}
+
+        ❔ Не пользователи бота: {len(not_user)} {warning_1}
+
+        ❓ Не найдено: {len(not_found)}
+        ⛔️ Ошибки: {len(errors)} {warning_2}
+        '''
+
+        errors = '    \n'.join(errors)
+        successful = '    \n'.join(successful)
+        whatsapp = '    \n'.join(whatsapp_user)
+        telegram = '    \n'.join(telegram_user)
+        groups = "    \n".join(groups)
+        not_user = "    \n".join(not_user)
+        found = '    \n'.join(found)
+        not_found = '    \n'.join(not_found)
+
+        file_text = f'''Отчет об отправке:
+
+        Всего отправлено: {all_mails} сообщений
+            
+        Отработаны вводные данные:
+    {found}
+
+        Пользователи бота из WhatsApp: 
+    {whatsapp}
+        Пользователи бота из Telegram: 
+    {telegram}
+        Группы:
+    {groups}
+
+        Не пользователи бота: 
+    {not_user}
+
+        Не найдено: 
+    {not_found}
+        Ошибки: 
+    {errors}
+            '''
+        print('Возвращаю данные рассылки классу Панели')
+        return text, file_text
 
 def _add_to_chat_history(chat_id, thread_id, sender_id, message_text):
     if chat_id in [main_chat_rus, main_chat_kz]:
@@ -1758,6 +1940,18 @@ async def async_handler(message):
         
         _add_to_chat_history(chat_id, thread_id, 'BOT', answer)
         
+        # print(history)
+        
+        verdict = consultation_tester.predict(answer)
+        if verdict == 'need_consultation':
+            message_id = list(history.keys())[-1]
+            keyboard = types.InlineKeyboardMarkup(row_width=1)
+            button1 = types.InlineKeyboardButton(
+                text="🤝 Дать ответ", callback_data=f'consultation:{message_id}')
+            keyboard.add(button1)
+            
+            bot.send_message(5776829003, f'Я не смог найти ответ на вопрос клиента:\n\n {message_text}\n\nЕсли это важный вопрос, нажми на кнопку и напиши верный ответ ;)', reply_markup=keyboard)
+              
         bot.send_message(chat_id, answer, message_thread_id=thread_id)
     
     elif chat_id in [main_chat_kz, main_chat_rus] and thread_id != 'General':
@@ -1874,7 +2068,10 @@ def start_telegram_bot():
     while True:
         print('Telegram бот запущен')
         try:
-            bot.polling()
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except requests.exceptions.ReadTimeout:
+            print('Сервер не отвечает...')
+            time.sleep(5)
         except Exception as e:
             bb.add('telegram', f'Error: {e}')
             

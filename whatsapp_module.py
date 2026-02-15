@@ -36,7 +36,9 @@ greenAPI = API.GreenAPI(get_config().get('whatsapp_id'),
 v_code = int(get_config().get('verification_code'))
 
 hype = Hyperion()
-google_sheets_1c = gs.GoogleSheets('https://docs.google.com/spreadsheets/d/18O1YzybW9zIWc61O_sVKFZEhoSnqhqYr8CIXwx5oxZ8/edit?gid=1735755508#gid=1735755508', 'staffsharing-468818-3d25c9372397.json')
+google_link = get_config().get('google_link')
+
+google_sheets_1c = gs.GoogleSheets(google_link, 'staffsharing-468818-3d25c9372397.json')
 
 async_loop = asyncio.new_event_loop()
 def run_async(coro):
@@ -44,11 +46,6 @@ def run_async(coro):
 def run_loop():
     asyncio.set_event_loop(async_loop)
     async_loop.run_forever()
-
-# Тестовая сборка! Удалить при релизе!
-# bot = telebot.TeleBot('7969382990:AAGD2ubgWSjX_PMrlBYsOsEdkhoPqGEjtHI')
-# main_chat_kz = -1002812256275
-# main_chat_rus = -1002812256275
 
 DB_NAME = 'users'
 db_path = Path(f'{DB_NAME}.db')

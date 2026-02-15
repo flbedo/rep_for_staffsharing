@@ -51,8 +51,8 @@ from config import get_config
 
 import staffsharing
 
-yandex_folder_id = int(get_config().get('yandex_folder_id'))
-yandex_api_key = int(get_config().get('yandex_api_key'))
+yandex_folder_id = get_config().get('yandex_folder_id')
+yandex_api_key = get_config().get('yandex_api_key')
 
 class LLM:
     def __init__(self, model_size='balanced'):
@@ -442,7 +442,7 @@ class RelpSearchSystem(TextSearchEngine):
         self._get_qa_pairs()
         self.chunks = list(map(str, self.qa.keys()))
 
-    def relp_search(self, query, k=5, alpha=0.3):
+    def relp_search(self, query, k=5, alpha=0.4):
         elements = self.search(query, k, alpha)
         self._get_qa_pairs()
         result = []
@@ -680,10 +680,12 @@ class Hyperion:
         """Кэшированный поиск для уменьшения повторных запросов"""
         if search_type == 'TSE':
             return self.tse.search(query, k=k)
-        elif search_type == 'RELP':
-            return self.rss.relp_search(query, k=k)
+        elif search_type == 'RELP8':
+            return self.rss.relp_search(query, k=k, alpha=0.8)
+        elif search_type == "RELP3":
+            return self.rss.relp_search(query, k=k, alpha=0.3)
         elif search_type == 'CACHE':
-            return self.rss_cache.relp_search(query, k=k)
+            return self.rss_cache.relp_search(query, k=k, alpha=0.6)
         return []
     
     def _get_ai_response_lays(self, query, system_prompt, **kwargs):
@@ -754,21 +756,25 @@ class Hyperion:
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_tse = executor.submit(self._search_by_type, query, 'TSE', 5)
-            future_relp = executor.submit(self._search_by_type, query, 'RELP', 5)
+            future_relp8 = executor.submit(self._search_by_type, query, 'RELP8', 3)
+            future_relp3 = executor.submit(self._search_by_type, query, 'RELP3', 5)
             future_cache = executor.submit(self._search_by_type, query, 'CACHE', 1)
             
             results_tse = future_tse.result()
-            results_relp = future_relp.result()
+            results_relp8 = future_relp8.result()
+            results_relp3 = future_relp3.result()
             results_cache = future_cache.result()
             
             for res in results_tse:
                 res['source'] = 'tse'
-            for res in results_relp:
-                res['source'] = 'rss'
+            for res in results_relp8:
+                res['source'] = 'rss8'
+            for res in results_relp3:
+                res['source'] = 'rss3'
             for res in results_cache:
                 res['source'] = 'rss_cache'
 
-        all_results = results_tse + results_relp + results_cache + results_gh
+        all_results = results_tse + results_relp8 + results_relp3 + results_cache + results_gh
         all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
 
         top_results = all_results[:5]
@@ -922,58 +928,57 @@ class Printer:
         print()
     
     
-@lru_cache(maxsize=100)
-def type_search(query, search_type, k=5):
-    """Кэшированный поиск для уменьшения повторных запросов"""
-    if search_type == 'TSE':
-        return tse.search(query, k=k)
-    elif search_type == 'RELP':
-        return rss.relp_search(query, k=k)
-    elif search_type == 'CACHE':
-        return rss_cache.relp_search(query, k=k, alpha=0.7)
-    return []    
+# @lru_cache(maxsize=100)
+# def type_search(query, search_type, k=5):
+#     """Кэшированный поиск для уменьшения повторных запросов"""
+#     if search_type == 'TSE':
+#         return tse.search(query, k=k)
+#     elif search_type == 'RELP':
+#         return rss.relp_search(query, k=k)
+#     elif search_type == 'CACHE':
+#         return rss_cache.relp_search(query, k=k, alpha=0.7)
+#     return []    
     
 if __name__ == "__main__":
-    tse = TextSearchEngine(f'faq.txt')
-    print("TSE инициализирован!")
-    printer = Printer()
     print('Инициализую движки поиска...')
     rss = RelpSearchSystem('faq')
     print('RSS инициализирован!')
-    rss_cache = RelpSearchSystem('ai')
-    print('RSS_Cache инициализирован!')
-    tse = TextSearchEngine(f'faq.txt')
-    print("TSE инициализирован!")
-    hype = Hyperion()
-    print("Hyperion инициализирован!")
+    # rss_cache = RelpSearchSystem('ai')
+    # print('RSS_Cache инициализирован!')
+    # tse = TextSearchEngine(f'faq.txt')
+    # print("TSE инициализирован!")
+    # hype = Hyperion()
+    # print("Hyperion инициализирован!")
     printer = Printer()
     query = ''
 
     while query != 'exit':
         print('════' * 20)
         query = input(">>> ")
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_tse = executor.submit(type_search, query, 'TSE', 5)
-            future_relp = executor.submit(type_search, query, 'RELP', 3)
-            future_cache = executor.submit(type_search, query, 'CACHE', 1)
+        # with concurrent.futures.ThreadPoolExecutor() as executor:
+        #     future_tse = executor.submit(type_search, query, 'TSE', 5)
+        #     future_relp = executor.submit(type_search, query, 'RELP', 3)
+        #     future_cache = executor.submit(type_search, query, 'CACHE', 1)
             
-            results_tse = future_tse.result()
-            results_relp = future_relp.result()
-            results_cache = future_cache.result()
+        #     results_tse = future_tse.result()
+        #     results_relp = future_relp.result()
+        #     results_cache = future_cache.result()
+        
+        results_relp = rss.relp_search(query, alpha=0.8)
             
-        all_results = results_tse + results_relp + results_cache
+        all_results = results_relp
         all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
         top_results = all_results[:5]
         
         context = ''.join(item["text"] + '\n' for item in all_results)
         
         
-        printer.print_results(results_tse)
-        print('════' * 10)
+        # printer.print_results(results_tse)
+        # print('════' * 10)
         printer.print_results(results_relp)
         print('════' * 10)
-        printer.print_results(results_cache)
-        print('════' * 10)
-        printer.print_results(top_results)
-        print('════' * 10)
+        # printer.print_results(results_cache)
+        # print('════' * 10)
+        # printer.print_results(top_results)
+        # print('════' * 10)
         

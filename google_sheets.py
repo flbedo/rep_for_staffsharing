@@ -103,9 +103,3 @@ class GoogleSheets:
         return list(self._extract_data_from_sheet(self.table, sheet_name)[0].keys())
 
         
-        
-    
-if __name__ == "__main__":
-    agent = GoogleSheets('https://docs.google.com/spreadsheets/d/18O1YzybW9zIWc61O_sVKFZEhoSnqhqYr8CIXwx5oxZ8/edit?gid=1735755508#gid=1735755508', 'staffsharing-468818-3d25c9372397.json')
-    
-    print(agent.get_)
